@@ -20,16 +20,24 @@ export default function Clients() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Partial<Client> | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const openCreate = () => { setEditing(EMPTY_CLIENT); setModalOpen(true); };
-  const openEdit = (c: Client) => { setEditing({ ...c }); setModalOpen(true); };
+  const openCreate = () => { setEditing({ ...EMPTY_CLIENT }); setSaveError(null); setModalOpen(true); };
+  const openEdit = (c: Client) => { setEditing({ ...c }); setSaveError(null); setModalOpen(true); };
 
   const handleSave = async () => {
     if (!editing) return;
-    if (editing.id) await updateClient.mutateAsync({ id: editing.id, ...editing });
-    else await createClient.mutateAsync(editing);
-    setModalOpen(false);
-    setEditing(null);
+    if (!editing.name?.trim()) { setSaveError('Nome é obrigatório'); return; }
+    setSaveError(null);
+    try {
+      if (editing.id) await updateClient.mutateAsync({ id: editing.id, ...editing });
+      else await createClient.mutateAsync(editing);
+      setModalOpen(false);
+      setEditing(null);
+    } catch (e: any) {
+      const msg = e?.response?.data?.error || e?.response?.data?.message || e?.message || 'Erro ao salvar cliente';
+      setSaveError(msg);
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -170,6 +178,12 @@ export default function Clients() {
                 />
               </div>
             </div>
+
+            {saveError && (
+              <div className="bg-red-900/40 border border-red-700 text-red-300 text-sm rounded-lg px-3 py-2">
+                {saveError}
+              </div>
+            )}
 
             <div className="flex gap-3 pt-2">
               <button onClick={() => setModalOpen(false)} className="btn-secondary flex-1">Cancelar</button>
