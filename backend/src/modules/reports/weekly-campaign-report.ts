@@ -5,12 +5,34 @@ function extractTag(name: string): string {
   return match ? match[1] : name;
 }
 
-function classifyObjective(name: string): 'leads_forms' | 'leads_wpp' | 'whatsapp' | 'traffic' | 'other' {
-  const lower = name.toLowerCase();
-  if (lower.includes('[wpp]') || lower.includes('whatsapp')) return lower.includes('[forms]') ? 'leads_forms' : 'leads_wpp';
-  if (lower.includes('[forms]') || lower.includes('form')) return 'leads_forms';
-  if (lower.includes('tráfego') || lower.includes('vp') || lower.includes('traffic')) return 'traffic';
+type CampaignType = 'wpp' | 'forms' | 'vp' | 'vendas' | 'other';
+
+function classifyObjective(name: string): CampaignType {
+  const upper = name.toUpperCase();
+  if (upper.includes('[WPP]') || upper.includes('_WPP_') || upper.includes(' WPP ') || upper.includes('-WPP-')) return 'wpp';
+  if (upper.includes('[FORMS]') || upper.includes('_FORMS_') || upper.includes(' FORMS ') || upper.includes('-FORMS-')) return 'forms';
+  if (upper.includes('[VP]') || upper.includes('_VP_') || upper.includes(' VP ') || upper.includes('-VP-') || upper.includes('VISITA')) return 'vp';
+  if (upper.includes('[VENDAS]') || upper.includes('_VENDAS_') || upper.includes(' VENDAS ') || upper.includes('-VENDAS-') || upper.includes('COMPRA')) return 'vendas';
   return 'other';
+}
+
+interface GroupData {
+  name: string;
+  spend: number;
+  reach: number;
+  // WPP
+  messages: number;
+  cost_per_message: number;
+  // FORMS
+  leads: number;
+  cpl: number;
+  // VP
+  clicks: number;
+  cpc: number;
+  // VENDAS
+  purchases: number;
+  cost_per_purchase: number;
+  add_to_cart: number;
 }
 
 export async function generateWeeklyCampaignReport(clientId: number) {
@@ -34,80 +56,109 @@ export async function generateWeeklyCampaignReport(clientId: number) {
     .gte('date', start)
     .lte('date', end);
 
-  const { data: crmMetrics } = await supabase
-    .from('crm_metrics')
-    .select('*')
-    .eq('client_id', clientId)
-    .gte('date', start)
-    .lte('date', end);
-
-  // Group by campaign objective
-  const groups: Record<string, { name: string; spend: number; leads: number; messages: number; clicks: number; impressions: number; }> = {};
+  const groups: Record<string, GroupData & { type: CampaignType }> = {};
 
   for (const m of (metrics || []) as any[]) {
     const campName = m.campaigns?.name || '';
     const tag = extractTag(campName);
-    const obj = classifyObjective(campName);
-    const key = `${obj}_${tag}`;
-    if (!groups[key]) groups[key] = { name: tag, spend: 0, leads: 0, messages: 0, clicks: 0, impressions: 0 };
-    groups[key].spend += m.spend || 0;
-    groups[key].leads += m.leads || 0;
-    groups[key].messages += m.messages || 0;
-    groups[key].clicks += m.clicks || 0;
-    groups[key].impressions += m.impressions || 0;
+    const type = classifyObjective(campName);
+    const key = `${type}_${tag}`;
+
+    if (!groups[key]) {
+      groups[key] = {
+        type, name: tag,
+        spend: 0, reach: 0,
+        messages: 0, cost_per_message: 0,
+        leads: 0, cpl: 0,
+        clicks: 0, cpc: 0,
+        purchases: 0, cost_per_purchase: 0, add_to_cart: 0,
+      };
+    }
+
+    const g = groups[key];
+    g.spend += m.spend || 0;
+    g.reach += m.reach || 0;
+    g.messages += m.messages || 0;
+    g.leads += m.leads || 0;
+    g.clicks += m.clicks || 0;
+    g.purchases += m.purchases || 0;
+    g.add_to_cart += m.add_to_cart || 0;
   }
 
-  const crmTotals = (crmMetrics || []).reduce((acc: any, m: any) => {
-    acc.mql = (acc.mql || 0) + (m.mql || 0);
-    acc.sql = (acc.sql || 0) + (m.sql || 0);
-    acc.sales = (acc.sales || 0) + (m.sales || 0);
-    return acc;
-  }, {} as Record<string, number>);
+  // Recalcular métricas derivadas após somar
+  for (const g of Object.values(groups)) {
+    g.cost_per_message = g.messages > 0 ? g.spend / g.messages : 0;
+    g.cpl = g.leads > 0 ? g.spend / g.leads : 0;
+    g.cpc = g.clicks > 0 ? g.spend / g.clicks : 0;
+    g.cost_per_purchase = g.purchases > 0 ? g.spend / g.purchases : 0;
+  }
+
+  const wppGroups    = Object.values(groups).filter(g => g.type === 'wpp');
+  const formsGroups  = Object.values(groups).filter(g => g.type === 'forms');
+  const vpGroups     = Object.values(groups).filter(g => g.type === 'vp');
+  const vendasGroups = Object.values(groups).filter(g => g.type === 'vendas');
+  const otherGroups  = Object.values(groups).filter(g => g.type === 'other');
 
   let content = `# Relatório Semanal de Campanhas\n`;
   content += `**Cliente:** ${client.name}\n`;
   content += `**Período:** ${start} a ${end}\n\n`;
 
-  const leadsGroups = Object.entries(groups).filter(([k]) => k.startsWith('leads'));
-  const wppGroups = Object.entries(groups).filter(([k]) => k.startsWith('whatsapp'));
-  const trafficGroups = Object.entries(groups).filter(([k]) => k.startsWith('traffic'));
-  const otherGroups = Object.entries(groups).filter(([k]) => k.startsWith('other'));
-
-  if (leadsGroups.length) {
-    content += `## Leads\n`;
-    for (const [, g] of leadsGroups) {
-      const cpl = g.leads > 0 ? g.spend / g.leads : 0;
-      content += `### ${g.name}\n`;
-      content += `- Leads: ${g.leads} | CPL: R$ ${cpl.toFixed(2)} | Spend: R$ ${g.spend.toFixed(2)}\n`;
-    }
-    content += `\n**Funil CRM:** MQL: ${crmTotals.mql || 0} | SQL: ${crmTotals.sql || 0} | Vendas: ${crmTotals.sales || 0}\n\n`;
-  }
-
+  // WPP
   if (wppGroups.length) {
-    content += `## WhatsApp\n`;
-    for (const [, g] of wppGroups) {
-      const cpm = g.messages > 0 ? g.spend / g.messages : 0;
+    content += `## WPP — Mensagens\n`;
+    for (const g of wppGroups) {
       content += `### ${g.name}\n`;
-      content += `- Mensagens: ${g.messages} | Custo/msg: R$ ${cpm.toFixed(2)} | Spend: R$ ${g.spend.toFixed(2)}\n`;
+      content += `- Mensagens: **${g.messages}**\n`;
+      content += `- Custo por Mensagem: R$ ${g.cost_per_message.toFixed(2)}\n`;
+      content += `- Valor Gasto: R$ ${g.spend.toFixed(2)}\n`;
+      content += `- Alcance: ${g.reach.toLocaleString('pt-BR')}\n\n`;
     }
-    content += '\n';
   }
 
-  if (trafficGroups.length) {
-    content += `## Tráfego/VP\n`;
-    for (const [, g] of trafficGroups) {
-      const ctr = g.impressions > 0 ? (g.clicks / g.impressions) * 100 : 0;
+  // FORMS
+  if (formsGroups.length) {
+    content += `## Forms — Leads\n`;
+    for (const g of formsGroups) {
       content += `### ${g.name}\n`;
-      content += `- Cliques: ${g.clicks} | CTR: ${ctr.toFixed(2)}% | Spend: R$ ${g.spend.toFixed(2)}\n`;
+      content += `- Leads: **${g.leads}**\n`;
+      content += `- Custo por Lead (CPL): R$ ${g.cpl.toFixed(2)}\n`;
+      content += `- Valor Gasto: R$ ${g.spend.toFixed(2)}\n`;
+      content += `- Alcance: ${g.reach.toLocaleString('pt-BR')}\n\n`;
     }
-    content += '\n';
   }
 
+  // VP
+  if (vpGroups.length) {
+    content += `## VP — Visita ao Perfil\n`;
+    for (const g of vpGroups) {
+      content += `### ${g.name}\n`;
+      content += `- Visitas ao Perfil: **${g.clicks}**\n`;
+      content += `- Custo por Visita: R$ ${g.cpc.toFixed(2)}\n`;
+      content += `- Valor Gasto: R$ ${g.spend.toFixed(2)}\n`;
+      content += `- Alcance: ${g.reach.toLocaleString('pt-BR')}\n\n`;
+    }
+  }
+
+  // VENDAS
+  if (vendasGroups.length) {
+    content += `## Vendas — Compras\n`;
+    for (const g of vendasGroups) {
+      content += `### ${g.name}\n`;
+      content += `- Compras: **${g.purchases}**\n`;
+      content += `- Custo por Compra: R$ ${g.cost_per_purchase.toFixed(2)}\n`;
+      content += `- Carrinhos Adicionados: ${g.add_to_cart}\n`;
+      content += `- Valor Gasto: R$ ${g.spend.toFixed(2)}\n`;
+      content += `- Alcance: ${g.reach.toLocaleString('pt-BR')}\n\n`;
+    }
+  }
+
+  // Outros
   if (otherGroups.length) {
     content += `## Outros\n`;
-    for (const [, g] of otherGroups) {
+    for (const g of otherGroups) {
       content += `### ${g.name}\n`;
-      content += `- Spend: R$ ${g.spend.toFixed(2)} | Impressões: ${g.impressions.toLocaleString()}\n`;
+      content += `- Valor Gasto: R$ ${g.spend.toFixed(2)}\n`;
+      content += `- Alcance: ${g.reach.toLocaleString('pt-BR')}\n\n`;
     }
   }
 

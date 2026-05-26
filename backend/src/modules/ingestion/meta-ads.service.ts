@@ -56,15 +56,18 @@ export async function ingestMetaAds(clientId: number, adAccountId: string, days 
 
     if (!campaign) continue;
 
-    const leads = extractAction(row.actions, 'lead') + extractAction(row.actions, 'offsite_conversion.fb_pixel_lead');
+    const leads    = extractAction(row.actions, 'lead') + extractAction(row.actions, 'offsite_conversion.fb_pixel_lead');
     const messages = extractAction(row.actions, 'onsite_conversion.messaging_first_reply');
+    const purchases  = extractAction(row.actions, 'purchase') + extractAction(row.actions, 'offsite_conversion.fb_pixel_purchase');
+    const addToCart  = extractAction(row.actions, 'add_to_cart') + extractAction(row.actions, 'offsite_conversion.fb_pixel_add_to_cart');
+    const spend      = Number(row.spend) || 0;
 
     await supabase.from('metrics_daily').upsert({
       client_id: clientId,
       entity_type: 'campaign',
       entity_id: campaign.id,
       date: row.date_start,
-      spend: Number(row.spend) || 0,
+      spend,
       impressions: Number(row.impressions) || 0,
       reach: Number(row.reach) || 0,
       frequency: Number(row.frequency) || 0,
@@ -73,9 +76,12 @@ export async function ingestMetaAds(clientId: number, adAccountId: string, days 
       cpc: Number(row.cpc) || 0,
       cpm: Number(row.cpm) || 0,
       leads,
-      cpl: leads > 0 ? (Number(row.spend) / leads) : 0,
+      cpl: leads > 0 ? spend / leads : 0,
       messages,
-      cost_per_message: messages > 0 ? (Number(row.spend) / messages) : 0,
+      cost_per_message: messages > 0 ? spend / messages : 0,
+      purchases,
+      cost_per_purchase: purchases > 0 ? spend / purchases : 0,
+      add_to_cart: addToCart,
     }, { onConflict: 'entity_type,entity_id,date' });
   }
 
