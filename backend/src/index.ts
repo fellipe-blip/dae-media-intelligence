@@ -21,15 +21,16 @@ import cronRoutes from './modules/cron/cron.routes';
 
 const app = express();
 
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:3000',
-  process.env.ALLOWED_ORIGIN,
-].filter(Boolean);
-
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    // Sem origin = same-origin ou curl
+    if (!origin) return callback(null, true);
+    // Localhost em dev
+    if (origin.startsWith('http://localhost')) return callback(null, true);
+    // Vercel deployments
+    if (origin.endsWith('.vercel.app')) return callback(null, true);
+    // Domínio customizado via env var
+    if (process.env.ALLOWED_ORIGIN && origin === process.env.ALLOWED_ORIGIN) return callback(null, true);
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
