@@ -10,9 +10,9 @@ type CampaignType = 'wpp' | 'forms' | 'vp' | 'vendas' | 'other';
 function classifyObjective(name: string): CampaignType {
   const upper = name.toUpperCase();
   if (upper.includes('[WPP]') || upper.includes('_WPP_') || upper.includes(' WPP ') || upper.includes('-WPP-')) return 'wpp';
-  if (upper.includes('[FORMS]') || upper.includes('_FORMS_') || upper.includes(' FORMS ') || upper.includes('-FORMS-')) return 'forms';
+  if (upper.includes('[FORMS]') || upper.includes('[FORM]') || upper.includes('_FORMS_') || upper.includes(' FORMS ') || upper.includes('-FORMS-') || upper.includes(' FORM ') || upper.includes('[FORM]')) return 'forms';
   if (upper.includes('[VP]') || upper.includes('_VP_') || upper.includes(' VP ') || upper.includes('-VP-') || upper.includes('VISITA')) return 'vp';
-  if (upper.includes('[VENDAS]') || upper.includes('_VENDAS_') || upper.includes(' VENDAS ') || upper.includes('-VENDAS-') || upper.includes('COMPRA')) return 'vendas';
+  if (upper.includes('[VENDAS]') || upper.includes('[VENDA]') || upper.includes('_VENDAS_') || upper.includes(' VENDAS ') || upper.includes('-VENDAS-') || upper.includes(' VENDA ') || upper.includes('COMPRA')) return 'vendas';
   return 'other';
 }
 
